@@ -13,4 +13,32 @@ This reduction in noise level enables the use of active learning algorithms whic
 
 We are able to show experimentally that the combination of denoising and active learning outperforms denoising and passive learning, achieving 33% of the generalization error for low label budgets. 
 
+-----------------------------------------------
+
+To run the experiments demonstrating the results,
+
+Run game_theory from terminal as "python game_theory.py" with parameters of your choice.
+
+The program takes 5 parameters -
+
+i) Initial noise method for labels - 
+    Option 1 - Random label noise across all sensors
+    Option 2 - Noise based on distance from the true hyperplane
+    Option 3 - Pockets of noise
+
+ii) Communication protocol between sensors -
+    Option 1 - Sensors communicate their labels to all sensors within radius 0.1
+    Option 2 - Sensors communicate their labels to 20 nearest neighbors
+    Option 3 - Sensors communicate their labels randomly based on distance
+
+iii) Type of dynamic - Update sensors based on 
+    Option 1 - Majority rule of all sensors within the communication radius
+    Option 2 - Weighted majority rule of all sensors within communication radius
+    Option 3 - Probabilistic version of k-nearest neighbors
+
+iv) Type of update - Update sensors either
+    Option 1 - Synchronous updates
+    Option 2 - Asynchronous updates
+
+v)  Number of sensors - Input an integer
 
