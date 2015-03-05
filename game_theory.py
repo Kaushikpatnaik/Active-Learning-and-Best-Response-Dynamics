@@ -205,7 +205,6 @@ class create_nn_graph(object):
             self.dict_weight[ptb].append(dist_pts)
 
 
-
     def knn_nn_graph(self, des_nbrs):
         # Case 3 - K - nearest neighbors instead of distance
         nbrs = NearestNeighbors(n_neighbors=des_nbrs, algorithm='auto').fit(self.dist)
@@ -376,9 +375,19 @@ if __name__ == '__main__':
 
     # Label budget you want to test
     label_budget = [30, 40, 50, 60, 70, 80, 90, 100]
+    #label_budget = [40]
 
     inf_y = zeros(opt_num_points)
 
+    '''
+    # prefix noisy points
+    dist_noisy = []
+    num_noisy = int(opt_num_points*alpha)
+    while len(dist_noisy) < num_noisy:
+        temp = unf(-1,1,(1,d))
+        if norm(temp,2) <=1:
+            dist_noisy.append(temp[0])
+    '''
 
     for x in range(1):
 
@@ -411,11 +420,15 @@ if __name__ == '__main__':
             Topology of points can vary
             Creating a random uniform distribution first
             '''
+
             
             # Choose randomly an optimal separator
             w_star = ones(2)
             w_star /= norm(w_star,2)
             
+
+            #print w_star
+
             # generating a uniform ball instead of a square
             dist = []
            
@@ -426,6 +439,11 @@ if __name__ == '__main__':
                 if norm(temp,2) <= 1:
                     dist.append(temp[0])
                     
+
+            # Select or unselect based on fixing the noisy points in advance
+            #for i in range(num_noisy):
+            #    dist.append(dist_noisy[i])
+
             dist = array(dist)
 
             # Change based on realizable or non-realizable case
@@ -473,6 +491,22 @@ if __name__ == '__main__':
 
                 # random noise
                 inf_y = noisy.randomclassnoise(alpha, y)
+
+                '''
+                # Scheme for pre-choosing noisy points
+                for i in range(num_clean):
+                    inf_y[i] = y[i]
+                for j in range(num_noisy):
+                    inf_y[j+num_clean] = -y[j + num_clean]
+
+                # creating own shuffling scheme
+                z = hstack((dist, inf_y.reshape(opt_num_points,1)))
+                u = hstack((z, y.reshape(opt_num_points,1)))
+                shuffle(u)
+                dist = u[:,0:2]
+                inf_y = u[:,2]
+                y = u[:,3]
+                '''
 
             elif opt_init_label_method == 2:
                 # choose based on w_star and distance (a random line in the unit ball)

@@ -239,7 +239,7 @@ class BandSelection(LinearLearner, PassiveSupervisedLearner):
         self.radiusparam = 0
         LinearLearner.__init__(self, d, w = None)
 
-    def param_calc(self, X, k, typeof, label):
+    def param_calc(self, X, k, typeof):
 
         sorteddistance = sorted(X)
         #print sorteddistance
@@ -249,12 +249,6 @@ class BandSelection(LinearLearner, PassiveSupervisedLearner):
         print sorteddistance[0]
         print sorteddistance[length-1]
         
-        '''
-        if (k==1 or k==2):
-            ratio =1
-        else: 
-            ratio = (self.num_iters - k + 1) * float(label)/float(length)
-        '''
         ratio = 1
 
         if typeof == "exp":
@@ -264,20 +258,16 @@ class BandSelection(LinearLearner, PassiveSupervisedLearner):
             frac = pow(k, -1) * ratio
             
         elif typeof == "lin":
-#            frac = (1 - (k - 1) / (self.num_iters - 1.0)) * ratio
-            frac = (self.num_iters - k) * float(label)/float(length)
+            frac = (1 - (k - 1) / (self.num_iters - 1.0)) * ratio
         
         else:
             raise ValueError
         
         print
         print frac
-#        self.radiusparam = 1
         self.radiusparam = 2 * frac
         print 'radius:', self.radiusparam
-        
-        print 'ratio computation:' , float(label)/float(length)
-        
+                
         num_points = int(ceil(length * frac))
         print 'points within band:', num_points
         self.bandparam = sorteddistance[num_points - 1]        

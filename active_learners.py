@@ -16,6 +16,10 @@ SOLVER = 'cvxopt'
 #SOLVER = 'hard_cvxopt'
 #SOLVER = 'svm'
 
+'''
+Self implementation of the PassiveSVM
+Currently replaced by libsvm for experiments in larger datasets
+'''
 class PassiveSVM(LinearLearner, ActiveBatchLearner, ActiveSourceLearner):
     
     def __init__(self, d, C):
@@ -39,7 +43,9 @@ class PassiveSVM(LinearLearner, ActiveBatchLearner, ActiveSourceLearner):
         U, ids = source(label_budget)
         self.active_batch_train(U, ids, oracle, label_budget)
 
-
+'''
+Implementation of the simple margin procedure in Tong and Koller
+'''
 class SimpleMarginBatch(LinearLearner, ActiveBatchLearner):
     
     def __init__(self, d):
@@ -91,8 +97,9 @@ class SimpleMarginBatch(LinearLearner, ActiveBatchLearner):
         
         # Use the most recent separator found by SVM
         self.w = svm.w
-
-
+'''
+Implementation of the online version of simple margin procedure in Tong and Koller
+'''
 class SimpleMarginSource(LinearLearner, ActiveSourceLearner):
     
     def __init__(self, d):
@@ -137,6 +144,355 @@ class SimpleMarginSource(LinearLearner, ActiveSourceLearner):
         # Use the most recent separator found by SVM
         self.w = svm.w
 
+'''
+Soft SVM online version of simple margin described in Tong and Koller
+'''
+class SimpleMarginSoftSVMSource(LinearLearner, ActiveSourceLearner):
+    
+    def __init__(self, d, C):
+        LinearLearner.__init__(self, d, w = None)
+        self.C = C
+    
+    def active_source_train(self, source, oracle, label_budget):
+        
+        # Create holders for the labeled data
+        X = array([]).reshape((0, self.d))
+        Y = array([]).reshape((0, 1))
+        used = set()
+        
+        # Query the labels of 10 examples
+        start = min(10, label_budget)
+        U, ids = source(start)
+        for i in range(start):
+            X = vstack((X, U[i]))
+            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
+            used.add(ids[i])
+        
+        # Run standard SVM on the labeled data
+        svm = soft_SVM(self.d, self.C)
+        svm.batch_train(X, Y)
+        
+        # Until the label budget is reached
+        while len(used) < label_budget:
+            
+            # Find an unlabeled example with a small margin
+			min_margin = min(abs(svm.margin(X[i])) for i in range(len(used)))
+			
+			U, ids = source(1)
+			while abs(svm.margin(U[0])) >= min_margin:
+				U, ids = source(1)
+			
+			# Query its label
+			X = vstack((X, U[0]))
+			Y = vstack((Y, array([oracle(ids[0])]).reshape((1,1))))
+			used.add(ids[0])
+			
+			# Run SVM on all the labeled data
+			svm.batch_train(X, Y)
+        
+        # Use the most recent separator found by SVM
+        self.w = svm.w
+
+'''
+Soft SVM online version of average margin described in Tong and Koller
+'''
+class AverageMarginSoftSVMSource(LinearLearner, ActiveSourceLearner):
+    
+    def __init__(self, d, C):
+        LinearLearner.__init__(self, d, w = None)
+        self.C = C
+    
+    def active_source_train(self, source, oracle, label_budget):
+        
+        # Create holders for the labeled data
+        X = array([]).reshape((0, self.d))
+        Y = array([]).reshape((0, 1))
+        used = set()
+        
+        # Query the labels of 10 examples
+        start = min(10, label_budget)
+        U, ids = source(start)
+        for i in range(start):
+            X = vstack((X, U[i]))
+            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
+            used.add(ids[i])
+        
+        # Run standard SVM on the labeled data
+        svm = soft_SVM(self.d, self.C)
+        svm.batch_train(X, Y)
+        
+        # Until the label budget is reached
+        while len(used) < label_budget:
+            
+            # Find an unlabeled example with a small margin
+            avg_margin = sum(Y[i] * svm.margin(X[i]) for i in range(len(used)))
+            
+            U, ids = source(1)
+            while abs(svm.margin(U[0])) >= 0.5 * avg_margin:
+				U, ids = source(1)
+            
+            # Query its label
+            X = vstack((X, U[0]))
+            Y = vstack((Y, array([oracle(ids[0])]).reshape((1,1))))
+            used.add(ids[0])
+            
+            # Run SVM on all the labeled data
+            svm.batch_train(X, Y)
+        
+        # Use the most recent separator found by SVM
+        self.w = svm.w
+
+'''
+Batch version of the simple margin soft learner described in Tong and Koller
+'''
+class SimpleMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
+    
+    def __init__(self, d, C):
+        LinearLearner.__init__(self, d, w = None)
+        self.C = C
+        self.initial_sample = 5
+    
+    def active_batch_train(self, U, ids, oracle, label_budget):
+        
+        # Create holders for the labeled data
+        X = array([]).reshape((0, self.d))
+        Y = array([]).reshape((0, 1))
+        used = set()
+        labeled = []
+        
+        # Query the labels of some examples
+        start = min(self.initial_sample, label_budget)
+        for i in range(start):
+            X = vstack((X, U[i]))
+            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
+            used.add(ids[i])
+            labeled.append(ids[i])
+        
+        # Run standard SVM on the labeled data
+        svm = soft_SVM(self.d, self.C)
+        svm.batch_train(X, Y)
+        
+        # Until the label budget is reached
+        while len(used) < label_budget:
+            
+            # Find the unlabeled example with the smallest margin
+            margins = abs(svm.margin(U))
+            min_margin = inf
+            min_index = 0
+            for i in range(len(U)):
+                if ids[i] in used:
+                    continue
+                cur_margin = margins[i]
+                if cur_margin < min_margin:
+                    min_margin = cur_margin
+                    min_index = i
+            
+            # Query its label
+            X = vstack((X, U[min_index]))
+            Y = vstack((Y, array([oracle(ids[min_index])]).reshape((1,1))))
+            used.add(ids[min_index])
+			
+			# Run SVM on all the labeled data
+            svm.batch_train(X, Y)
+        
+        # Use the most recent separator found by SVM
+        self.w = svm.w
+
+'''
+Batch version of the Max Min Soft SVM learner described in Tong and Koller
+'''
+class MaxMinMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
+    
+    def __init__(self, d, C):
+        LinearLearner.__init__(self, d, w = None)
+        self.C = C
+        self.initial_sample = 5
+        self.pointsusage = 0
+    
+    def active_batch_train(self, U, ids, oracle, label_budget):
+        
+        # Create holders for the labeled data
+        X = array([]).reshape((0, self.d))
+        Y = array([]).reshape((0, 1))
+        used = set()
+        labeled = []
+        self.pointsusage = label_budget
+        
+        # Query the labels of some examples
+        start = min(self.initial_sample, label_budget)
+        for i in range(start):
+            X = vstack((X, U[i]))
+            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
+            used.add(ids[i])
+            labeled.append(ids[i])
+        
+        # Create standard SVM object
+        svm = soft_SVM(self.d, self.C)
+        
+        # Until the label budget is reached
+        while len(used) < label_budget:
+            
+            # Find the unlabeled example with the largest min-margin
+            max_min_margin = 0
+            max_index = 0
+            for i in range(len(U)):
+                if ids[i] in used:
+                    continue
+                
+                # Compute the two margins and take the min
+                cur_margins = []
+                for label in (-1, 1):
+                    new_X = vstack((X, U[i]))
+                    new_Y = vstack((Y, array([label]).reshape((1,1))))
+                    svm.batch_train(new_X, new_Y)
+                    cur_margin = min(abs(svm.margin(new_X[i])) for i in range(len(new_X)))
+                    cur_margins.append(cur_margin)
+                
+                cur_min_margin = min(cur_margins)
+                
+                if cur_min_margin > max_min_margin:
+                    max_min_margin = cur_min_margin
+                    max_index = i
+            
+            # Query its label
+            X = vstack((X, U[max_index]))
+            Y = vstack((Y, array([oracle(ids[max_index])]).reshape((1,1))))
+            used.add(ids[max_index])
+			
+		# Run SVM on all the labeled data
+        svm.batch_train(X, Y)
+        self.w = svm.w
+
+'''
+Batch version of the Ratio Margin Soft SVM learner described in Tong and Koller
+'''
+class RatioMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
+    
+    def __init__(self, d, C):
+        LinearLearner.__init__(self, d, w = None)
+        self.C = C
+        self.initial_sample = 5
+        self.pointsusage = 0
+    
+    def active_batch_train(self, U, ids, oracle, label_budget):
+        
+        # Create holders for the labeled data
+        X = array([]).reshape((0, self.d))
+        Y = array([]).reshape((0, 1))
+        used = set()
+        labeled = []
+        self.pointsusage = label_budget
+        
+        # Query the labels of some examples
+        start = min(self.initial_sample, label_budget)
+        for i in range(start):
+            X = vstack((X, U[i]))
+            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
+            used.add(ids[i])
+            labeled.append(ids[i])
+        
+        # Run standard SVM on the labeled data
+        svm = soft_SVM(self.d, self.C)
+        
+        # Until the label budget is reached
+        while len(used) < label_budget:
+            
+            # Find the unlabeled example with the largest min-margin-ratio
+            max_min_margin_ratio = 0
+            max_index = 0
+            for i in range(len(U)):
+                if ids[i] in used:
+                    continue
+                
+                # Compute the two margins and take the min
+                cur_margins = []
+                for label in (-1, 1):
+                    new_X = vstack((X, U[i]))
+                    new_Y = vstack((Y, array([label]).reshape((1,1))))
+                    svm.batch_train(new_X, new_Y)
+                    cur_margin = min(abs(svm.margin(new_X[i])) for i in range(len(new_X)))
+                    cur_margins.append(cur_margin)
+                
+                margin_ratios = (cur_margins[0] / cur_margins[1],
+                                 cur_margins[1] / cur_margins[0])
+                cur_min_margin_ratio = min(margin_ratios)
+                
+                if cur_min_margin_ratio > max_min_margin_ratio:
+                    max_min_margin_ratio = cur_min_margin_ratio
+                    max_index = i
+            
+            # Query its label
+            X = vstack((X, U[max_index]))
+            Y = vstack((Y, array([oracle(ids[max_index])]).reshape((1,1))))
+            used.add(ids[max_index])
+			
+        # Run SVM on all the labeled data
+        svm.batch_train(X, Y)
+        self.w = svm.w
+
+'''
+Implementation of Average Margin Soft SVM described in Tong and Koller
+'''
+class AverageMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
+    
+    def __init__(self, d, C):
+        LinearLearner.__init__(self, d, w = None)
+        self.C = C
+    
+    def active_batch_train(self, U, ids, oracle, label_budget):
+        
+        # Create holders for the labeled data
+        X = array([]).reshape((0, self.d))
+        Y = array([]).reshape((0, 1))
+        used = set()
+        labeled = []
+        
+        # Query the labels of 10 examples
+        start = min(10, label_budget)
+        for i in range(start):
+            X = vstack((X, U[i]))
+            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
+            used.add(ids[i])
+            labeled.append(ids[i])
+        
+        # Run standard SVM on the labeled data
+        svm = soft_SVM(self.d, self.C)
+        svm.batch_train(X, Y)
+        
+        # Until the label budget is reached
+        while (len(labeled) < label_budget) and (len(used) < len(U)):
+            
+            # Find an unlabeled example with a small margin
+            avg_margin = sum(Y[i] * svm.margin(X[i]) for i in range(len(labeled)))
+            
+            p = len(used)
+            while abs(svm.margin(U[p])) >= 0.5 * avg_margin:
+				used.add(ids[p])
+				p += 1
+				if p == len(U):
+					break
+				
+            if len(used) == len(U):
+				break
+            
+            # Query its label
+            X = vstack((X, U[p]))
+            Y = vstack((Y, array([oracle(ids[p])]).reshape((1,1))))
+            labeled.append(ids[p])
+            used.add(ids[p])
+            
+            # Run SVM on all the labeled data
+            svm.batch_train(X, Y)
+        
+        # Use the most recent separator found by SVM
+        self.w = svm.w
+
+
+'''
+First Implementation of the base version of the algorithm described in STOC 2014 paper -The power of localization in effectively learning linear separators 
+Only adverserial noise version
+Initialization of parameters based on upper bounds in paper
+'''
 class LinearSeparatorsNoiseSource(LinearLearner, ActiveSourceLearner):
 	def __init__(self, d, eps, c1, c2, c3, c4):
 		LinearLearner.__init__(self, d, w = None)
@@ -228,99 +584,14 @@ class LinearSeparatorsNoiseSource(LinearLearner, ActiveSourceLearner):
 					tempx = vstack((tempx, U[0]))
 			k +=1
 
-class SimpleMarginSoftSVMSource(LinearLearner, ActiveSourceLearner):
-    
-    def __init__(self, d, C):
-        LinearLearner.__init__(self, d, w = None)
-        self.C = C
-    
-    def active_source_train(self, source, oracle, label_budget):
-        
-        # Create holders for the labeled data
-        X = array([]).reshape((0, self.d))
-        Y = array([]).reshape((0, 1))
-        used = set()
-        
-        # Query the labels of 10 examples
-        start = min(10, label_budget)
-        U, ids = source(start)
-        for i in range(start):
-            X = vstack((X, U[i]))
-            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
-            used.add(ids[i])
-        
-        # Run standard SVM on the labeled data
-        svm = soft_SVM(self.d, self.C)
-        svm.batch_train(X, Y)
-        
-        # Until the label budget is reached
-        while len(used) < label_budget:
-            
-            # Find an unlabeled example with a small margin
-			min_margin = min(abs(svm.margin(X[i])) for i in range(len(used)))
-			
-			U, ids = source(1)
-			while abs(svm.margin(U[0])) >= min_margin:
-				U, ids = source(1)
-			
-			# Query its label
-			X = vstack((X, U[0]))
-			Y = vstack((Y, array([oracle(ids[0])]).reshape((1,1))))
-			used.add(ids[0])
-			
-			# Run SVM on all the labeled data
-			svm.batch_train(X, Y)
-        
-        # Use the most recent separator found by SVM
-        self.w = svm.w
 
 
-class AverageMarginSoftSVMSource(LinearLearner, ActiveSourceLearner):
-    
-    def __init__(self, d, C):
-        LinearLearner.__init__(self, d, w = None)
-        self.C = C
-    
-    def active_source_train(self, source, oracle, label_budget):
-        
-        # Create holders for the labeled data
-        X = array([]).reshape((0, self.d))
-        Y = array([]).reshape((0, 1))
-        used = set()
-        
-        # Query the labels of 10 examples
-        start = min(10, label_budget)
-        U, ids = source(start)
-        for i in range(start):
-            X = vstack((X, U[i]))
-            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
-            used.add(ids[i])
-        
-        # Run standard SVM on the labeled data
-        svm = soft_SVM(self.d, self.C)
-        svm.batch_train(X, Y)
-        
-        # Until the label budget is reached
-        while len(used) < label_budget:
-            
-            # Find an unlabeled example with a small margin
-            avg_margin = sum(Y[i] * svm.margin(X[i]) for i in range(len(used)))
-            
-            U, ids = source(1)
-            while abs(svm.margin(U[0])) >= 0.5 * avg_margin:
-				U, ids = source(1)
-            
-            # Query its label
-            X = vstack((X, U[0]))
-            Y = vstack((Y, array([oracle(ids[0])]).reshape((1,1))))
-            used.add(ids[0])
-            
-            # Run SVM on all the labeled data
-            svm.batch_train(X, Y)
-        
-        # Use the most recent separator found by SVM
-        self.w = svm.w
 
+
+'''
+Implementation of the adverserial noise version of the algorithm described in STOC 2014 paper
+Major changes from Method1 are the way the variables are initialized
+'''
 class LinearNoiseMethod2Source(LinearLearner, ActiveSourceLearner):
 	def __init__(self, d, eps, c1, c2, c3, c4):
 		LinearLearner.__init__(self, d, w = None)
@@ -435,6 +706,9 @@ class LinearNoiseMethod2Source(LinearLearner, ActiveSourceLearner):
 			
 			k +=1
 
+'''
+Batch version of the base implementation
+'''
 class LinearSeparatorsNoiseBatch(LinearLearner, ActiveBatchLearner):
 	def __init__(self, d, eps, c1, c2, c3, c4):
 		LinearLearner.__init__(self, d, w = None)
@@ -547,255 +821,27 @@ class LinearSeparatorsNoiseBatch(LinearLearner, ActiveBatchLearner):
 					tempx = vstack((tempx, U[p]))
 			k +=1
 
-class SimpleMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
-    
-    def __init__(self, d, C):
-        LinearLearner.__init__(self, d, w = None)
-        self.C = C
-        self.initial_sample = 5
-    
-    def active_batch_train(self, U, ids, oracle, label_budget):
-        
-        # Create holders for the labeled data
-        X = array([]).reshape((0, self.d))
-        Y = array([]).reshape((0, 1))
-        used = set()
-        labeled = []
-        
-        # Query the labels of some examples
-        start = min(self.initial_sample, label_budget)
-        for i in range(start):
-            X = vstack((X, U[i]))
-            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
-            used.add(ids[i])
-            labeled.append(ids[i])
-        
-        # Run standard SVM on the labeled data
-        svm = soft_SVM(self.d, self.C)
-        svm.batch_train(X, Y)
-        
-        # Until the label budget is reached
-        while len(used) < label_budget:
-            
-            # Find the unlabeled example with the smallest margin
-            margins = abs(svm.margin(U))
-            min_margin = inf
-            min_index = 0
-            for i in range(len(U)):
-                if ids[i] in used:
-                    continue
-                cur_margin = margins[i]
-                if cur_margin < min_margin:
-                    min_margin = cur_margin
-                    min_index = i
-            
-            # Query its label
-            X = vstack((X, U[min_index]))
-            Y = vstack((Y, array([oracle(ids[min_index])]).reshape((1,1))))
-            used.add(ids[min_index])
-			
-			# Run SVM on all the labeled data
-            svm.batch_train(X, Y)
-        
-        # Use the most recent separator found by SVM
-        self.w = svm.w
+'''
+USE This
 
+Base implementation of the Margin Based Method incorporating different strategies and options for execution
+Based on STOC 2014 paper - The power of localization in effectively learning linear separators
 
-class MaxMinMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
-    
-    def __init__(self, d, C):
-        LinearLearner.__init__(self, d, w = None)
-        self.C = C
-        self.initial_sample = 5
-        self.pointsusage = 0
-    
-    def active_batch_train(self, U, ids, oracle, label_budget):
-        
-        # Create holders for the labeled data
-        X = array([]).reshape((0, self.d))
-        Y = array([]).reshape((0, 1))
-        used = set()
-        labeled = []
-        self.pointsusage = label_budget
-        
-        # Query the labels of some examples
-        start = min(self.initial_sample, label_budget)
-        for i in range(start):
-            X = vstack((X, U[i]))
-            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
-            used.add(ids[i])
-            labeled.append(ids[i])
-        
-        # Create standard SVM object
-        svm = soft_SVM(self.d, self.C)
-        
-        # Until the label budget is reached
-        while len(used) < label_budget:
-            
-            # Find the unlabeled example with the largest min-margin
-            max_min_margin = 0
-            max_index = 0
-            for i in range(len(U)):
-                if ids[i] in used:
-                    continue
-                
-                # Compute the two margins and take the min
-                cur_margins = []
-                for label in (-1, 1):
-                    new_X = vstack((X, U[i]))
-                    new_Y = vstack((Y, array([label]).reshape((1,1))))
-                    svm.batch_train(new_X, new_Y)
-                    cur_margin = min(abs(svm.margin(new_X[i])) for i in range(len(new_X)))
-                    cur_margins.append(cur_margin)
-                
-                cur_min_margin = min(cur_margins)
-                
-                if cur_min_margin > max_min_margin:
-                    max_min_margin = cur_min_margin
-                    max_index = i
-            
-            # Query its label
-            X = vstack((X, U[max_index]))
-            Y = vstack((Y, array([oracle(ids[max_index])]).reshape((1,1))))
-            used.add(ids[max_index])
-			
-		# Run SVM on all the labeled data
-        svm.batch_train(X, Y)
-        self.w = svm.w
+Initialization based on the averaging algorithm
+Hinge loss solver can be - cvxopt, sgd, hard_cvxopt and svm
 
+Implements outlier removal
 
-class RatioMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
-    
-    def __init__(self, d, C):
-        LinearLearner.__init__(self, d, w = None)
-        self.C = C
-        self.initial_sample = 5
-        self.pointsusage = 0
-    
-    def active_batch_train(self, U, ids, oracle, label_budget):
-        
-        # Create holders for the labeled data
-        X = array([]).reshape((0, self.d))
-        Y = array([]).reshape((0, 1))
-        used = set()
-        labeled = []
-        self.pointsusage = label_budget
-        
-        # Query the labels of some examples
-        start = min(self.initial_sample, label_budget)
-        for i in range(start):
-            X = vstack((X, U[i]))
-            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
-            used.add(ids[i])
-            labeled.append(ids[i])
-        
-        # Run standard SVM on the labeled data
-        svm = soft_SVM(self.d, self.C)
-        
-        # Until the label budget is reached
-        while len(used) < label_budget:
-            
-            # Find the unlabeled example with the largest min-margin-ratio
-            max_min_margin_ratio = 0
-            max_index = 0
-            for i in range(len(U)):
-                if ids[i] in used:
-                    continue
-                
-                # Compute the two margins and take the min
-                cur_margins = []
-                for label in (-1, 1):
-                    new_X = vstack((X, U[i]))
-                    new_Y = vstack((Y, array([label]).reshape((1,1))))
-                    svm.batch_train(new_X, new_Y)
-                    cur_margin = min(abs(svm.margin(new_X[i])) for i in range(len(new_X)))
-                    cur_margins.append(cur_margin)
-                
-                margin_ratios = (cur_margins[0] / cur_margins[1],
-                                 cur_margins[1] / cur_margins[0])
-                cur_min_margin_ratio = min(margin_ratios)
-                
-                if cur_min_margin_ratio > max_min_margin_ratio:
-                    max_min_margin_ratio = cur_min_margin_ratio
-                    max_index = i
-            
-            # Query its label
-            X = vstack((X, U[max_index]))
-            Y = vstack((Y, array([oracle(ids[max_index])]).reshape((1,1))))
-            used.add(ids[max_index])
-			
-        # Run SVM on all the labeled data
-        svm.batch_train(X, Y)
-        self.w = svm.w
-
-
-class AverageMarginSoftSVMBatch(LinearLearner, ActiveBatchLearner):
-    
-    def __init__(self, d, C):
-        LinearLearner.__init__(self, d, w = None)
-        self.C = C
-    
-    def active_batch_train(self, U, ids, oracle, label_budget):
-        
-        # Create holders for the labeled data
-        X = array([]).reshape((0, self.d))
-        Y = array([]).reshape((0, 1))
-        used = set()
-        labeled = []
-        
-        # Query the labels of 10 examples
-        start = min(10, label_budget)
-        for i in range(start):
-            X = vstack((X, U[i]))
-            Y = vstack((Y, array([oracle(ids[i])]).reshape((1,1))))
-            used.add(ids[i])
-            labeled.append(ids[i])
-        
-        # Run standard SVM on the labeled data
-        svm = soft_SVM(self.d, self.C)
-        svm.batch_train(X, Y)
-        
-        # Until the label budget is reached
-        while (len(labeled) < label_budget) and (len(used) < len(U)):
-            
-            # Find an unlabeled example with a small margin
-            avg_margin = sum(Y[i] * svm.margin(X[i]) for i in range(len(labeled)))
-            
-            p = len(used)
-            while abs(svm.margin(U[p])) >= 0.5 * avg_margin:
-				used.add(ids[p])
-				p += 1
-				if p == len(U):
-					break
-				
-            if len(used) == len(U):
-				break
-            
-            # Query its label
-            X = vstack((X, U[p]))
-            Y = vstack((Y, array([oracle(ids[p])]).reshape((1,1))))
-            labeled.append(ids[p])
-            used.add(ids[p])
-            
-            # Run SVM on all the labeled data
-            svm.batch_train(X, Y)
-        
-        # Use the most recent separator found by SVM
-        self.w = svm.w
-
-
+'''
 class MarginBasedActiveLearnerBase(LinearLearner, ActiveBatchLearner):
     
-	def __init__(self, d, num_iters, constant1, constant2, constant3):
+	def __init__(self, d, num_iters):
 		LinearLearner.__init__(self, d, w = None)
 		self.num_iters = num_iters
 		self.separators = []
 		self.pointsusage = 0
 		self.combine_final = False
-		self.constant1 = constant1
-		self.constant2 = constant2
-		self.constant3 = constant3
-	
+		
 	def initialize_weights(self, X, Y):
 		# Use PCA
 		#pca = PCA(self.d)
@@ -842,11 +888,11 @@ class MarginBasedActiveLearnerBase(LinearLearner, ActiveBatchLearner):
 		
 		# Print some initialization info
 		
-		#print
-		#print self.__class__.__name__
-		#print 'Iterations:', itr
-		#print 'm:', m
-		#print 'n:', n
+		print
+		print self.__class__.__name__
+		print 'Iterations:', itr
+		print 'm:', m
+		print 'n:', n
 		
 		
 		# access to the training examples and their labels		
@@ -875,11 +921,11 @@ class MarginBasedActiveLearnerBase(LinearLearner, ActiveBatchLearner):
 			b, t, r = self.set_parameters(U, k)
 
 			# Print current iteration info
-			#print
-			#print 'k:', k
-			#print 'b:', b
-			#print 't:', t
-			#print 'r:', r
+			print
+			print 'k:', k
+			print 'b:', b
+			print 't:', t
+			print 'r:', r
 			
 			# Set of points to send to outlier removal
 			P = array([]).reshape((0,self.d))
@@ -893,13 +939,13 @@ class MarginBasedActiveLearnerBase(LinearLearner, ActiveBatchLearner):
 					P = vstack((P, U[next]))
 					workingset.append(ids[next])
 
-                        #print "Ids choosen in iteration " + str(k)
-                        #print workingset  			
+                        print "Ids choosen in iteration " + str(k)
+                        print workingset  			
 
 			# Check unlabeled data usage and break if necessary
 			if len(workingset) != n[k]:
-				#print
-				#print 'Out of unlabled data.'
+				print
+				print 'Out of unlabled data.'
 				break
 			
 			# Perform outlier removal on P
@@ -920,8 +966,8 @@ class MarginBasedActiveLearnerBase(LinearLearner, ActiveBatchLearner):
 			self.hinge_loss_minimization(X, Y, t, self.w, r)
 			self.separators.append(self.w)
 
-                        #print "weight vector in iteration " + str(k)
-                        #print self.w			
+                        print "weight vector in iteration " + str(k)
+                        print self.w			
 			
 			# Print some end of iteration info?
 			
@@ -938,10 +984,10 @@ class MarginBasedActiveLearnerBase(LinearLearner, ActiveBatchLearner):
 			self.hinge_loss_minimization(R, S, t, self.w, r)
 			self.separators.append(self.w)
 		
-		#print "Final Weight Vector"
-		#print self.w
+		print "Final Weight Vector"
+		print self.w
 		self.pointsusage = len(S) + m[0]
-        '''
+        
 		# Print final info
 		print
 		print 'Label usage:'
@@ -951,11 +997,14 @@ class MarginBasedActiveLearnerBase(LinearLearner, ActiveBatchLearner):
 		print 'Unlabeled usage:'
 		print 'total:', count
 		print 'used: ', len(used)
-        '''
-
+        
+'''
+Only adverserial
+specific initialization of parameters
+'''
 class MarginBasedBasic(MarginBasedActiveLearnerBase):
-	def __init__(self, d, num_iters, constant1, constant2, constant3):
-		MarginBasedActiveLearnerBase.__init__(self, d, num_iters, constant1, constant2, constant3)
+	def __init__(self, d, num_iters):
+		MarginBasedActiveLearnerBase.__init__(self, d, num_iters)
 	
 	def compute_sizes(self, unlabeled, labeled, num_iters):
 		m = [0] * num_iters
@@ -978,8 +1027,9 @@ class MarginBasedBasic(MarginBasedActiveLearnerBase):
 	def outlier_removal(self, P, m, b, r, tau, w):
 		# No outlier removal. Return all indices.
 		return array(range(m))
-
-
+'''
+Basic with Outlier Removal
+'''
 class MarginBasedOutlierRemoval(MarginBasedActiveLearnerBase):
 	def __init__(self, d, num_iters):
 		MarginBasedActiveLearnerBase.__init__(self, d, num_iters)
@@ -1020,7 +1070,9 @@ class MarginBasedOutlierRemoval(MarginBasedActiveLearnerBase):
 		chosen = nprandom.choice(n, size = m, replace = False, p = Q)
 		return chosen
 	
-
+'''
+Set the theoretical parameters
+'''
 class Theoretical:
 	
 	def set_parameters(self, U, k):
@@ -1035,15 +1087,19 @@ class Theoretical:
 		r = c3 * pow(2, -k)
 		return b, t, r
 
-
+'''
+Call this class for running the algorithm under adverserial noise with parameters initialized using theoretical specifications
+'''
 class MarginBasedTheoreticalParams(MarginBasedBasic, Theoretical):
-	def __init__(self, d, num_iters, constant1, constant2, constant3):
-		MarginBasedBasic.__init__(self, d, num_iters, constant1, constant2, constant3)
+	def __init__(self, d, num_iters):
+		MarginBasedBasic.__init__(self, d, num_iters)
 
-
+'''
+Call this class for running the algorithm under malicious noise with parameters initialized using theoretical specifications
+'''
 class MarginBasedTheoreticalParamsOR(MarginBasedOutlierRemoval, Theoretical):
-	def __init__(self, d, num_iters, constant1, constant2, constant3):
-		MarginBasedOutlierRemoval.__init__(self, d, num_iters, constant1, constant2, constant3)
+	def __init__(self, d, num_iters):
+		MarginBasedOutlierRemoval.__init__(self, d, num_iters)
 
 
 class VarianceMethod:
@@ -1080,7 +1136,7 @@ class LinearNoiseMethodVarianceBatchOR(MarginBasedOutlierRemoval, VarianceMethod
 
 class AllExp:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1090,7 +1146,7 @@ class AllExp:
 		
 		# Parameters for iteration
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "exp", label)
+		param.param_calc(dotdistance, k, "exp")
 	
 		#print "parameters selected for allexp in kernel method"
 	
@@ -1102,7 +1158,7 @@ class AllExp:
 
 class AllInv:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1112,7 +1168,7 @@ class AllInv:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "inv", label)
+		param.param_calc(dotdistance, k, "inv")
 	
 		#print "parameters selected for allinv in kernel method"
 	
@@ -1124,7 +1180,7 @@ class AllInv:
 
 class AllLin:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1135,7 +1191,7 @@ class AllLin:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 	
 		#print "parameters selected for alllin in kernel method"
 	
@@ -1147,7 +1203,7 @@ class AllLin:
 
 class ExpInv:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		
 		row, col = U.shape
@@ -1157,9 +1213,9 @@ class ExpInv:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "exp", label)
+		param.param_calc(dotdistance, k, "exp")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "inv", label)
+		param1.param_calc(dotdistance, k, "inv")
 		
 		b = param.bandparam
 		t = 0.25 * b
@@ -1169,7 +1225,7 @@ class ExpInv:
 
 class ExpLin:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1180,9 +1236,9 @@ class ExpLin:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "exp", label)
+		param.param_calc(dotdistance, k, "exp")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "lin", label)
+		param1.param_calc(dotdistance, k, "lin")
 		
 		b = param.bandparam
 		t = 0.25 * b
@@ -1192,7 +1248,7 @@ class ExpLin:
 
 class InvExp:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1202,9 +1258,9 @@ class InvExp:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "inv", label)
+		param.param_calc(dotdistance, k, "inv")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "exp", label)
+		param1.param_calc(dotdistance, k, "exp")
 		
 		b = param.bandparam
 		t = 0.25 * b
@@ -1214,7 +1270,7 @@ class InvExp:
 
 class InvLin:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1225,9 +1281,9 @@ class InvLin:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "inv", label)
+		param.param_calc(dotdistance, k, "inv")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "lin", label)
+		param1.param_calc(dotdistance, k, "lin")
 		
 		b = param.bandparam
 		t = 0.25 * b
@@ -1237,7 +1293,7 @@ class InvLin:
 
 class LinExp:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1247,9 +1303,9 @@ class LinExp:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "exp", label)
+		param1.param_calc(dotdistance, k, "exp")
 		
 		b = param.bandparam
 		t = 0.25 * b
@@ -1259,7 +1315,7 @@ class LinExp:
 
 class LinInv:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1269,9 +1325,9 @@ class LinInv:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "inv", label)
+		param1.param_calc(dotdistance, k, "inv")
 		
 		b = param.bandparam
 		t = 0.25 * b
@@ -1280,7 +1336,7 @@ class LinInv:
 
 class LinConstInv:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1290,9 +1346,9 @@ class LinConstInv:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "inv", label)
+		param1.param_calc(dotdistance, k, "inv")
 		
 		b = param.bandparam
 		t = 0.01
@@ -1301,7 +1357,7 @@ class LinConstInv:
 
 class LinIncInv:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1311,9 +1367,9 @@ class LinIncInv:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "inv", label)
+		param1.param_calc(dotdistance, k, "inv")
 		
 		b = param.bandparam
 		t = 10 * b
@@ -1322,7 +1378,7 @@ class LinIncInv:
 
 class LinDecInv:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1332,9 +1388,9 @@ class LinDecInv:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 		param1 = BandSelection(self.d, self.num_iters)
-		param1.param_calc(dotdistance, k, "inv", label)
+		param1.param_calc(dotdistance, k, "inv")
 		
 		b = param.bandparam
 		t = 0.01 * b
@@ -1343,7 +1399,7 @@ class LinDecInv:
 
 class LinConst:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1353,7 +1409,7 @@ class LinConst:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 		#param1 = BandSelection(self.d, self.num_iters)
 		#param1.param_calc(dotdistance, k, "inv")
 		
@@ -1364,7 +1420,7 @@ class LinConst:
 
 class LinMin:
 	
-	def set_parameters(self, U, k, label):
+	def set_parameters(self, U, k):
 		# Compute distances and standard deviation
 		row, col = U.shape
 		
@@ -1374,7 +1430,7 @@ class LinMin:
 		
 		# Parameters for iteration k
 		param = BandSelection(self.d, self.num_iters)
-		param.param_calc(dotdistance, k, "lin", label)
+		param.param_calc(dotdistance, k, "lin")
 		#param1 = BandSelection(self.d, self.num_iters)
 		#param1.param_calc(dotdistance, k, "inv")
 		

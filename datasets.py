@@ -43,8 +43,7 @@ class DataSet(object):
             x = hstack((array([1.0]), x))
         if self.norm_p:
             try:
-                #normalized = x / norm(x, self.norm_p)
-                normalized = x / self.maxnorm
+                normalized = x / norm(x, self.norm_p)
             except RuntimeWarning:
                 print 'x:', x
                 print '||x||_%g:' % self.norm_p, norm(x, self.norm_p)

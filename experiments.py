@@ -140,25 +140,6 @@ def libsvm_angle_compare_test(learner_types, dataset, num_trials, num_unlabeled,
         angle_diff_algo /= norm(w_star,2) * norm(algo_w,2)
         angle_diff_algo = math.acos(angle_diff_algo)
         #print angle_diff_algo
-
-        '''
-        local_data.initialize(shuffle = False)
-        learner2 = learner_types[1]()
-        classroom2 = ActiveBatchClassroom(learner2, local_data, tracker1, num_unlabeled, label_budget, 0)
-        classroom2.learn()
-        if display:
-            sys.stdout.write('.')
-            sys.stdout.flush()
-       
-        
-        # Calculating difference in angle for the theoretical algorithm
-        simple_margin_w = learner2.w
-        simple_margin_diff = 0
-        
-        simple_margin_diff = dot(w_star, simple_margin_w)
-        simple_margin_diff /= norm(w_star,2) * norm(simple_margin_w,2)
-        simple_margin_diff = math.acos(simple_margin_diff)
-        '''
         
         local_data.initialize(shuffle = False)
         
@@ -222,6 +203,7 @@ def libsvm_compare_learners(learner_types, dataset, num_trials, num_unlabeled, l
     trackers = [StatTracker() for l in learner_types]
     acc= []
     return_acc_tuple = []
+    d = dataset.d
     
     for trial in range(num_trials):
         local_data = copy.copy(dataset)
@@ -240,7 +222,7 @@ def libsvm_compare_learners(learner_types, dataset, num_trials, num_unlabeled, l
                 sys.stdout.write('.')
                 sys.stdout.flush()
         
-        x = zeros((num_unlabeled, 2))
+        x = zeros((num_unlabeled, d))
         y = zeros(num_unlabeled)
 
         local_data.initialize(shuffle = False)
@@ -265,11 +247,9 @@ def libsvm_compare_learners(learner_types, dataset, num_trials, num_unlabeled, l
         acc.append(p_acc[0])
 
     accuracy = sum(acc[:]*test_size)/(test_size*num_trials)
+    print accuracy
 
-    # returning algo error and then svm error
-    return_acc_tuple.append([tracker1.return_aggregate_stats(), accuracy])
-
-    return return_acc_tuple
+    return trackers
 
 
 
