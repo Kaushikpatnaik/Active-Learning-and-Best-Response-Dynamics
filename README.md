@@ -139,7 +139,6 @@ procedure for calculating final noise level
 def calculate_noisy(y, inf_y)
 
 -------------------------------------------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------------------------------------------
 
 Other files which are important for adding new synthethic datasets, noise types etc
 
@@ -148,7 +147,6 @@ file synthetic_experiments.py
 File contains sample code for running experiments on synthetic datasets.
 
 To add a new synthetic dataset, please add a class similar to class GaussianLinearSep(DataSet) in datasets.py
--------------------------------------------------------------------------------------------------------------------------
 
 file adversary.py
 -------------------------------------------------------------------------------------------------------------------------
@@ -156,17 +154,14 @@ File contains base class for adversary as well as separate classes for different
 
 To add a new noise type, please look at class MarginLinearMaliciousNoise(Adversary) in adversary.py
 The adversary must be specified in the datset definition for the noise to be included
--------------------------------------------------------------------------------------------------------------------------
 
 file stat_tracker.py
 -------------------------------------------------------------------------------------------------------------------------
 File contains base class for tracking different parameters for each learner
--------------------------------------------------------------------------------------------------------------------------
 
 file passive_learners.py
 -------------------------------------------------------------------------------------------------------------------------
 File contains classes for outlier removal method and also Quadratic program used in the implmentation of Margin Based Algorithm
 
 Also contains other optimization methods like SGD.
--------------------------------------------------------------------------------------------------------------------------
 
