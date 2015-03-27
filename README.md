@@ -3,6 +3,8 @@ Active-Learning-and-Best-Response-Dynamics
 
 Code for NIPS'14 paper - Active Learning and Best Response Dynamics
 
+[Link to Paper](http://arxiv.org/abs/1406.6633)
+
 The paper examines a setting with many low-powered distributed sensors. The sensors can communicate locally, and querying them from a central agent is costly. In addition to local communication only, the sensors make noisy readings (label noise). The goal is to detect a linear hyperplane classifying the sensors with least possible queries. 
 
 We approach the problem by first denoising the sensor readings by playing a local consensus game. Each sensor communicates its readings to all neighbors within communication range r, and updates its own label based on majority rule. This consensus dynamic can be synchronous (all at the same time) or asynchronous in nature. This dynamic can be run for several iterations to reach an equilibrium state.
